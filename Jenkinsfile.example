@@ -1,0 +1,85 @@
+#!/usr/bin/env groovy
+@Library('shared-library@release-1.1.0') _
+
+properties([
+    gitLabConnection('pipeline@gitlab')
+])
+
+stdPipeline([
+    businessUnit: 'velo',
+    projectName: 'application-poc',
+    pipelineType: 'golang',
+    subgroup: 'poc',
+    utility: [
+        gitlabPlugin: true,
+        slackPlugin: [
+            baseUrl: 'https://scb-tech.slack.com/services/hooks/jenkins-ci/',
+            channel: '#test-notify',
+            teamDomain: 'the-velo',
+            tokenCredentialId: 'wIYctEqfm4TBTgYJiBLynrCa',
+        ]
+    ],
+    jenkinsConfig: [
+        agent : 'slave'
+    ],
+    registry: [
+        url: 'registry.gitlab.com',
+        group: 'scb-thailand',
+        project: 'application-poc',
+        subgroup: 'poc',
+        registryCredential: 'gitlab-developer-account'
+    ],
+    configRepo: [
+     configRepoURL : 'https://gitlab.com/scb-thailand/scb-app-configs.git',
+     configRepoCredential : 'gitlab-developer-account'
+    ],
+    s3Bucket: 'velo-deployment-k8s',
+    branchToEnvironmentMapping: [
+        'master': ['staging', 'production'],
+        'release/': ['test'],
+        'develop': ['develop'],
+        '*': ['review']
+    ],
+    kubernetes: [
+        environmentToContextMapping: [
+            'production': 'k8s-cluster.scb-prod.com',
+            'staging': 'k8s-cluster.scb-nonprod.com',
+            'test': 'k8s-cluster-test.scb-nonprod.com',
+            'develop': 'k8s-cluster.scb-nonprod.com',
+        ],
+        environmentToPodReplicasMapping: [
+            'production': '2',
+            'staging': '2',
+            'test': '1',
+            'develop': '1',
+        ],
+        environmentToNamespaceMapping: [
+            'production': 'production-velo-core',
+            'staging': 'staging-velo-core',
+            'test': 'test-velo-core',
+            'develop': 'develop-velo-core',
+        ]
+    ],
+    runAutomateTest: [
+        'release': 'TEST-velo-automate',
+        'develop': 'DEV-velo-automate'
+    ],
+    sonarqubeConfig: [
+        url: 'http://sonarqube.velo-nonprod.com:9000',
+        verifyTimeoutSecond: '10'
+    ]
+]) { context ->
+    stagePullAppConfigs(context)
+    stageVaultDiffCheck(context)
+    stageConfigDiffCheck(context)
+    stageBuild(context)
+    stageUnitTest(context)
+    stageBuildWithSonarqube(context)
+    stageQualityGateFromSonarqube(context)
+    stageBuildAndPushToRegistry(context)
+    stageBuildManifest(context)
+    stageDeploy(context)
+    stageCheckDeploymentStatus(context)
+    stageRunAutomateTest(context)
+    stageUploadManifest(context)
+}
